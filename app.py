@@ -122,35 +122,39 @@ def check_availability():
             'error': str(e)
         }), 500
 
-
 # WEBHOOK 2: CREATE EVENT
 
 @app.route('/webhook/create-event', methods=['POST'])
 def create_event():
-    """Create new calendar event"""
+    """Create new calendar event for client"""
     try:
         data = request.json
         
-        # Get parameters
-        title = data.get('title', '').strip()
+        # Get parameters - now expecting client_name and client_email
+        client_name = data.get('client_name', '').strip()
+        client_email = data.get('client_email', '').strip()
         start_time = data.get('start_time', '').strip()
         end_time = data.get('end_time', '').strip()
         description = data.get('description', '').strip()
-        attendee_email = data.get('attendee_email', '').strip()
         timezone = data.get('timezone', 'Asia/Kolkata')
         
         # Validation
-        if not title:
-            return jsonify({'success': False, 'error': 'title required'}), 400
+        if not client_name:
+            return jsonify({'success': False, 'error': 'client_name required'}), 400
+        if not client_email:
+            return jsonify({'success': False, 'error': 'client_email required'}), 400
         if not start_time:
             return jsonify({'success': False, 'error': 'start_time required'}), 400
         if not end_time:
             return jsonify({'success': False, 'error': 'end_time required'}), 400
         
+        # Auto-generate title
+        title = f"Appointment with {client_name}"
+        
         # Build event
         event = {
             'summary': title,
-            'description': description,
+            'description': description if description else f"Appointment booked for {client_name}",
             'start': {
                 'dateTime': start_time,
                 'timeZone': timezone,
@@ -159,6 +163,9 @@ def create_event():
                 'dateTime': end_time,
                 'timeZone': timezone,
             },
+            'attendees': [
+                {'email': client_email, 'responseStatus': 'needsAction'}
+            ],
             'reminders': {
                 'useDefault': False,
                 'overrides': [
@@ -168,23 +175,21 @@ def create_event():
             },
         }
         
-        # Add attendee if provided
-        if attendee_email:
-            event['attendees'] = [{'email': attendee_email}]
-        
         # Create event (auto-refreshes token)
         service = get_calendar_service()
         created = service.events().insert(
             calendarId='primary',
             body=event,
-            sendUpdates='all' if attendee_email else 'none'
+            sendUpdates='all'  # Always send invite to client
         ).execute()
         
         return jsonify({
             'success': True,
             'event_id': created['id'],
             'event_link': created.get('htmlLink', ''),
-            'message': f"Meeting '{title}' scheduled successfully!",
+            'client_name': client_name,
+            'client_email': client_email,
+            'message': f"Appointment confirmed for {client_name}. Calendar invite sent to {client_email}",
             'start': created['start']['dateTime'],
             'end': created['end']['dateTime']
         })
@@ -341,7 +346,7 @@ def health():
 @app.route('/', methods=['GET'])
 def home():
     return '''
-    <h1> Voice Calendar API - LIVE</h1>
+    <h1>🎙️ Voice Calendar API - LIVE</h1>
     <p>Backend for ElevenLabs Voice Agent</p>
     <h3>Endpoints:</h3>
     <ul>
